@@ -5,3 +5,10 @@ authors = ["Félix Saparelli <felix@passcod.name>"]
 edition = "2018"
 
 [dependencies]
+sled = "0.24.1"
+byteorder = "1.3.2"
+serde = "1.0.92"
+bincode = "1.1.4"
+rhai = { git = "https://github.com/jonathandturner/rhai" }
+crossbeam-channel = "0.3.8"
+lazy_static = "1.3.0"
