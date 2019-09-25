@@ -275,13 +275,14 @@ impl Index {
 #[derive(Clone)]
 pub struct Function {
     id: u64,
+    key_length: u8,
     instance: Arc<Mutex<Instance>>,
 }
 
-// function is instead a wasm module
+// function is a wasm module
 // module required to have two exports:
 // - constant: key_length (u8), which is the length of the returned key
-// - keying function: key_factory (in_offset: i32, in_length: i32, out_offset: i32) -> i32
+// - keying function: key_factory (in_offset: i32, in_length: i32, out_offset: i32) -> int
 //      Takes in offset+length for an input byte string that contains
 //      the input data in the module's memory, and an offset (length is
 //      the key_length constant) to write the output byte string to.
@@ -290,7 +291,7 @@ pub struct Function {
 
 impl Function {
     pub fn new(id: u64, source: &[u8]) -> wasmer_runtime::error::Result<Self> {
-        use wasmer_runtime::{func, imports, instantiate};
+        use wasmer_runtime::{func, imports, instantiate, Export};
 
         let import = imports! {
             "env" => {
@@ -298,10 +299,80 @@ impl Function {
             },
         };
 
-        instantiate(source, &import).map(|i| Self {
+        let instance = instantiate(source, &import)?;
+
+        let key_length = instance
+            .exports()
+            .filter_map(|(s, e)| match (s.as_str(), e) {
+                ("key_length", Export::Global(g)) => Some(g),
+                _ => None,
+            })
+            .next()
+            .expect("No key_length global export")
+            .get()
+            .to_u128()
+            .try_into()
+            .expect("Length is too large");
+
+        if !instance.exports().any(|(name, _)| name == "key_factory") {
+            panic!("No key_factory function export");
+        }
+
+        Ok(Self {
             id,
-            instance: Arc::new(Mutex::new(i)),
+            key_length,
+            instance: Arc::new(Mutex::new(instance)),
         })
+    }
+
+    pub fn call(&self, value: &[u8]) -> Result<Vec<u8>, wasmer_runtime::error::CallError> {
+        let mut instance = self.instance.lock().unwrap();
+        let memory = instance.context_mut().memory(0);
+
+        // input section written with input data
+        let in_start = 0;
+        let in_end = in_start + value.len();
+
+        // 1..=32 zero bytes as padding
+
+        // output section zeroed of size key_length
+        let out_start = {
+            let pad = in_end % 32;
+            in_end + (32 - pad)
+        };
+        let out_end = out_start + self.key_length as usize;
+
+        // TODO: figure out how (or if it's needed) to shrink memory after use
+        for (byte, cell) in value
+        .iter()
+        .chain(std::iter::repeat(&0).take(out_end - in_end))
+        .zip(memory.view()[in_start..in_end].iter())
+        {
+            cell.set(*byte);
+        }
+
+        let params: [i32; 3] = [
+            in_start.try_into().expect("in_start too large"),
+            in_end.try_into().expect("in_end too large"),
+            out_start.try_into().expect("out_start too large"),
+        ];
+
+        let result = instance.call("key_factory", &[
+            params[0].into(),
+            params[1].into(),
+            params[2].into(),
+        ])?;
+
+        let result = result.first().map(|r| r.to_u128()).unwrap_or(0);
+
+        if result != 0 {
+            panic!("Index function returned {}", result);
+        }
+
+        let memory = instance.context_mut().memory(0);
+        let output = wasm::memory_bytes(&memory, out_start as u32, out_end as u32);
+
+        Ok(output)
     }
 }
 
@@ -309,7 +380,7 @@ mod wasm {
     use std::cell::Cell;
     use wasmer_runtime::{Ctx, Memory};
 
-    fn memory_bytes(memory: &Memory, offset: u32, length: u32) -> Vec<u8> {
+    pub fn memory_bytes(memory: &Memory, offset: u32, length: u32) -> Vec<u8> {
         use std::convert::TryFrom;
         let start = usize::try_from(offset).unwrap();
         let end = start + usize::try_from(length).unwrap();
