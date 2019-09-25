@@ -239,13 +239,37 @@ pub struct Index {
 
 impl Index {
     /// Parses an index tree name and fetches the relevant structures.
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn from_tree_name(_key: &[u8], _db: Arc<sled::Db>) -> sled::Result<Self> {
+    pub fn from_tree_name(key: &[u8], db: Arc<sled::Db>) -> sled::Result<Self> {
         // - parse name in (id: u64, rev: u8, queue: u64, mode: u8(enum), function: u64)
+        assert_eq!(key[0], QUEUE_INDEX);
+        let id = u64::from_le_bytes(key[1..=8].try_into().unwrap());
+        let rev = key[9];
+        let queue = u64::from_le_bytes(key[10..=17].try_into().unwrap());
+        let mode: IndexMode = match key[18] {
+            1 => IndexMode::OrderedHash,
+            _ => panic!("Invalid mode")
+        };
+        let function_id = u64::from_le_bytes(key[19..=26].try_into().unwrap());
+        assert_eq!(key.len(), 27);
+
         // - retrieve tree from db
+        let tree = db.open_tree(key)?;
+
         // - retrieve function from db
+        let function_tree = db.open_tree([INDEX_FUNCTIONS])?;
+        let function_source = function_tree.get(function_id.to_le_bytes())?.unwrap();
+        let function = Function::new(function_id, &function_source).unwrap();
+
         // - construct
-        unimplemented!()
+        Ok(Self {
+            id,
+            rev,
+            queue,
+            mode,
+            function,
+            db,
+            tree: Arc::new(tree),
+        })
     }
 
     /// Indexes a job id at the position that the index's function puts the provided job.
