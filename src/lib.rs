@@ -212,11 +212,26 @@ impl Queue {
     }
 }
 
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub enum IndexMode {
+    Hash = 1,    // SipHash: low collisions, good distribution, only == queries
+    Ordered,     // no hashing, resultant bucketing, no collisions, poor distribution, range queries
+    OrderedHash, // hashing only as discriminant, low collisions, medium distribution, range queries
+}
+
+impl Default for IndexMode {
+    fn default() -> Self {
+        IndexMode::OrderedHash
+    }
+}
+
 #[derive(Clone)]
 pub struct Index {
     id: u64,
     rev: u8,
     queue: u64,
+    mode: IndexMode,
     function: Function,
     db: Arc<sled::Db>,
     tree: Arc<sled::Tree>,
@@ -224,8 +239,9 @@ pub struct Index {
 
 impl Index {
     /// Parses an index tree name and fetches the relevant structures.
-    pub fn from_tree_name(key: &[u8], db: Arc<sled::Db>) -> sled::Result<Self> {
-        // - parse name in (id: u64, rev: u8, queue: u64, function: u64)
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn from_tree_name(_key: &[u8], _db: Arc<sled::Db>) -> sled::Result<Self> {
+        // - parse name in (id: u64, rev: u8, queue: u64, mode: u8(enum), function: u64)
         // - retrieve tree from db
         // - retrieve function from db
         // - construct
