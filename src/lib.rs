@@ -1,22 +1,32 @@
+#![deny(
+    clippy::pedantic,
+    clippy::nursery,
+    deprecated,
+    intra_doc_link_resolution_failure
+)]
+#![forbid(unsafe_code)]
+// While dev
+#![allow(unused_variables, dead_code)]
+
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::sync::Arc;
 
-const QUEUE_STORAGE: u8 = 'q' as u8;
-const QUEUE_INDEX: u8 = 'i' as u8;
-const INDEX_FUNCTIONS: u8 = 'f' as u8;
-const NAME_LOOKUPS: u8 = 'n' as u8;
-const INDEX_REVISIONS: u8 = 'r' as u8;
+const QUEUE_STORAGE: u8 = b'q';
+const QUEUE_INDEX: u8 = b'i';
+const INDEX_FUNCTIONS: u8 = b'f';
+const NAME_LOOKUPS: u8 = b'n';
+const INDEX_REVISIONS: u8 = b'r';
 
-const LOOKUP_QUEUE_FWD: u8 = 'Q' as u8;
-const LOOKUP_INDEX_FWD: u8 = 'I' as u8;
-const LOOKUP_FUNCTION_FWD: u8 = 'F' as u8;
-const LOOKUP_QUEUE_REV: u8 = 'q' as u8;
-const LOOKUP_INDEX_REV: u8 = 'i' as u8;
-const LOOKUP_FUNCTION_REV: u8 = 'f' as u8;
+const LOOKUP_QUEUE_FWD: u8 = b'Q';
+const LOOKUP_INDEX_FWD: u8 = b'I';
+const LOOKUP_FUNCTION_FWD: u8 = b'F';
+const LOOKUP_QUEUE_REV: u8 = b'q';
+const LOOKUP_INDEX_REV: u8 = b'i';
+const LOOKUP_FUNCTION_REV: u8 = b'f';
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum Named {
     Queue,
     Index,
@@ -24,7 +34,7 @@ pub enum Named {
 }
 
 impl Named {
-    pub fn fwd(&self) -> u8 {
+    pub fn fwd(self) -> u8 {
         match self {
             Named::Queue => LOOKUP_QUEUE_FWD,
             Named::Index => LOOKUP_INDEX_FWD,
@@ -32,7 +42,7 @@ impl Named {
         }
     }
 
-    pub fn rev(&self) -> u8 {
+    pub fn rev(self) -> u8 {
         match self {
             Named::Queue => LOOKUP_QUEUE_REV,
             Named::Index => LOOKUP_INDEX_REV,
@@ -63,20 +73,14 @@ impl From<Arc<sled::Db>> for Db {
 }
 
 impl Db {
-    fn queue_tree(&self, id: u64) -> sled::Result<Arc<sled::Tree>> {
+    fn queue_tree(&self, id: u64) -> sled::Result<sled::Tree> {
         let mut name = Vec::with_capacity(9);
         name.push(QUEUE_STORAGE);
         name.extend_from_slice(&id.to_le_bytes()[..]);
         self.db.open_tree(name)
     }
 
-    fn index_tree(
-        &self,
-        id: u64,
-        rev: u8,
-        queue: u64,
-        function: u64,
-    ) -> sled::Result<Arc<sled::Tree>> {
+    fn index_tree(&self, id: u64, rev: u8, queue: u64, function: u64) -> sled::Result<sled::Tree> {
         let mut name = Vec::with_capacity(26);
         name.push(QUEUE_INDEX);
         name.extend_from_slice(&id.to_le_bytes()[..]);
@@ -86,15 +90,15 @@ impl Db {
         self.db.open_tree(name)
     }
 
-    fn function_tree(&self) -> sled::Result<Arc<sled::Tree>> {
+    fn function_tree(&self) -> sled::Result<sled::Tree> {
         self.db.open_tree([INDEX_FUNCTIONS])
     }
 
-    fn names_tree(&self) -> sled::Result<Arc<sled::Tree>> {
+    fn names_tree(&self) -> sled::Result<sled::Tree> {
         self.db.open_tree([NAME_LOOKUPS])
     }
 
-    fn index_rev_tree(&self) -> sled::Result<Arc<sled::Tree>> {
+    fn index_rev_tree(&self) -> sled::Result<sled::Tree> {
         self.db.open_tree([INDEX_REVISIONS])
     }
 
@@ -169,14 +173,14 @@ pub struct Job {
 pub struct Queue {
     id: u64,
     db: Arc<sled::Db>,
-    tree: Arc<sled::Tree>,
+    tree: sled::Tree,
 }
 
 impl Queue {
     pub fn add(&self, job: &Job) -> sled::Result<u64> {
         let id = self.db.generate_id()?;
         self.tree
-            .set(id.to_le_bytes(), bincode::serialize(job).unwrap())?;
+            .insert(id.to_le_bytes(), bincode::serialize(job).unwrap())?;
         Ok(id)
     }
 
@@ -187,7 +191,7 @@ impl Queue {
     }
 
     pub fn del(&self, id: u64) -> sled::Result<()> {
-        self.tree.del(id.to_le_bytes()).map(|_| ())
+        self.tree.remove(id.to_le_bytes()).map(|_| ())
     }
 
     pub fn indexes(&self) -> sled::Result<Vec<Index>> {
@@ -197,7 +201,7 @@ impl Queue {
         for name in self.db.tree_names().iter().filter(|name| {
             name.len() == 26 && name.starts_with(&[QUEUE_INDEX]) && name[11..=17] == id_bytes
         }) {
-            let tree = self.db.open_tree(name)?;
+            let _tree = self.db.open_tree(name)?;
             let index = Index::from_tree_name(name, self.db.clone())?;
             is.push(index);
         }
@@ -232,7 +236,7 @@ impl Index {
     pub fn add(&self, job_id: u64, job: &Job) -> sled::Result<()> {
         let n = self.db.generate_id()?; // TODO: derive from job and index function
         self.tree
-            .set(n.to_le_bytes(), &job_id.to_le_bytes()[..])
+            .insert(n.to_le_bytes(), &job_id.to_le_bytes()[..])
             .map(|_| ())
     }
 
@@ -259,6 +263,7 @@ impl Index {
 use std::thread::{spawn, JoinHandle};
 type EngineChan = (Arc<Job>, Arc<String>, Sender<Result<u64, String>>);
 
+// FIXME: use once-cell instead
 lazy_static::lazy_static! {
     static ref ENGINE: (Sender<EngineChan>, JoinHandle<()>) = {
         let (s, r): (Sender<EngineChan>, Receiver<EngineChan>) = unbounded();
@@ -267,7 +272,7 @@ lazy_static::lazy_static! {
             let mut engine = rhai::Engine::new();
             // TODO: function bindings etc
 
-            for (job, source, back) in input.iter() {
+            for (_job, source, back) in input.iter() {
                 // TODO: inject job
                 let result = engine.eval::<u64>(&source).map_err(|e| format!("{}", e));
                 back.send(result).unwrap();
