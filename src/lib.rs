@@ -8,10 +8,10 @@
 // While dev
 #![allow(unused_variables, dead_code)]
 
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use wasmer_runtime::Instance;
 
 const QUEUE_STORAGE: u8 = b'q';
 const QUEUE_INDEX: u8 = b'i';
@@ -54,7 +54,6 @@ impl Named {
 #[derive(Clone)]
 pub struct Db {
     db: Arc<sled::Db>,
-    fn_engine: rhai::Engine,
 }
 
 impl From<sled::Db> for Db {
@@ -65,10 +64,7 @@ impl From<sled::Db> for Db {
 
 impl From<Arc<sled::Db>> for Db {
     fn from(db: Arc<sled::Db>) -> Self {
-        Self {
-            db,
-            fn_engine: rhai::Engine::new(),
-        }
+        Self { db }
     }
 }
 
@@ -276,49 +272,55 @@ impl Index {
     }
 }
 
-use std::thread::{spawn, JoinHandle};
-type EngineChan = (Arc<Job>, Arc<String>, Sender<Result<Vec<u8>, String>>);
-
-// FIXME: use once-cell instead
-lazy_static::lazy_static! {
-    static ref ENGINE: (Sender<EngineChan>, JoinHandle<()>) = {
-        let (s, r): (Sender<EngineChan>, Receiver<EngineChan>) = unbounded();
-        let j = spawn(|| {
-            let input = r;
-            let mut engine = rhai::Engine::new();
-            // TODO: function bindings etc
-
-            for (_job, source, back) in input.iter() {
-                // TODO: inject job
-                let result = engine.eval::<Vec<u8>>(&source).map_err(|e| format!("{}", e));
-                back.send(result).unwrap();
-            }
-        });
-
-        (s, j)
-    };
-}
-
 #[derive(Clone)]
 pub struct Function {
     id: u64,
-    source: Arc<String>,
-    engine: Sender<EngineChan>,
+    instance: Arc<Mutex<Instance>>,
 }
 
+// function is instead a wasm module
+// module required to have two exports:
+// - constant: key_length (u8), which is the length of the returned key
+// - keying function: key_factory (in_offset: i32, in_length: i32, out_offset: i32) -> i32
+//      Takes in offset+length for an input byte string that contains
+//      the input data in the module's memory, and an offset (length is
+//      the key_length constant) to write the output byte string to.
+//      The output byte string is always initialised and zeroed.
+//      Needs to return 0 for success, >0 for standard errors, <0 for custom errors.
+
 impl Function {
-    pub fn new(id: u64, source: Arc<String>) -> Self {
-        Self {
+    pub fn new(id: u64, source: &[u8]) -> wasmer_runtime::error::Result<Self> {
+        use wasmer_runtime::{func, imports, instantiate};
+
+        let import = imports! {
+            "env" => {
+                "log" => func!(wasm::log),
+            },
+        };
+
+        instantiate(source, &import).map(|i| Self {
             id,
-            source,
-            engine: ENGINE.0.clone(),
-        }
+            instance: Arc::new(Mutex::new(i)),
+        })
+    }
+}
+
+mod wasm {
+    use std::cell::Cell;
+    use wasmer_runtime::{Ctx, Memory};
+
+    fn memory_bytes(memory: &Memory, offset: u32, length: u32) -> Vec<u8> {
+        use std::convert::TryFrom;
+        let start = usize::try_from(offset).unwrap();
+        let end = start + usize::try_from(length).unwrap();
+        memory.view()[start..end].iter().map(Cell::get).collect()
     }
 
-    pub fn run(&self, job: Arc<Job>) -> Result<Vec<u8>, String> {
-        let (s, r) = bounded(1);
-        self.engine.send((job, self.source.clone(), s)).unwrap();
-        r.recv().unwrap()
+    pub fn log(ctx: &mut Ctx, ptr: u32, len: u32) {
+        println!(
+            "{}",
+            String::from_utf8_lossy(&memory_bytes(ctx.memory(0), ptr, len))
+        );
     }
 }
 
