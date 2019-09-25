@@ -8,7 +8,6 @@
 // While dev
 #![allow(unused_variables, dead_code)]
 
-use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 use wasmer_runtime::Instance;
@@ -26,7 +25,7 @@ const LOOKUP_QUEUE_REV: u8 = b'q';
 const LOOKUP_INDEX_REV: u8 = b'i';
 const LOOKUP_FUNCTION_REV: u8 = b'f';
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum Named {
     Queue,
     Index,
@@ -148,21 +147,26 @@ impl Db {
         })
     }
 
-    pub fn add_job(&self, queue: &str, job: &Job) -> sled::Result<u64> {
+    pub fn add_item(&self, queue: &str, item: &Item) -> sled::Result<u64> {
         let queue = self.open_queue(queue)?;
-        let id = queue.add(job)?;
+        let id = queue.add(item)?;
 
         for index in &queue.indexes()? {
-            index.add(id, job)?;
+            index.add(id, item)?;
         }
 
         Ok(id)
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Hash)]
-pub struct Job {
-    pub payload: Vec<u8>,
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Hash)]
+pub struct Item(pub Vec<u8>);
+
+impl std::ops::Deref for Item {
+    type Target = Vec<u8>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 #[derive(Clone)]
@@ -173,17 +177,17 @@ pub struct Queue {
 }
 
 impl Queue {
-    pub fn add(&self, job: &Job) -> sled::Result<u64> {
+    pub fn add(&self, item: &Item) -> sled::Result<u64> {
         let id = self.db.generate_id()?;
         self.tree
-            .insert(id.to_le_bytes(), bincode::serialize(job).unwrap())?;
+            .insert(id.to_le_bytes(), &item as &[u8])?;
         Ok(id)
     }
 
-    pub fn get(&self, id: u64) -> sled::Result<Option<Job>> {
+    pub fn get(&self, id: u64) -> sled::Result<Option<Item>> {
         self.tree
             .get(id.to_le_bytes())
-            .map(|e| e.as_ref().map(|v| bincode::deserialize(v).unwrap()))
+            .map(|e| e.as_ref().map(|v| Item(v.to_vec())))
     }
 
     pub fn del(&self, id: u64) -> sled::Result<()> {
@@ -211,9 +215,9 @@ impl Queue {
 #[derive(Clone, Copy)]
 #[repr(u8)]
 pub enum IndexMode {
-    Hash = 1,    // SipHash: low collisions, good distribution, only == queries
-    Ordered,     // no hashing, resultant bucketing, no collisions, poor distribution, range queries
-    OrderedHash, // hashing only as discriminant, low collisions, medium distribution, range queries
+    OrderedHash = 1, // hashing only as discriminant, low collisions, medium distribution, range queries
+    Ordered,         // no hashing, resultant bucketing, no collisions, poor distribution, range queries
+    SipHash,         // SipHash: low collisions, good distribution, only == queries
 }
 
 impl Default for IndexMode {
@@ -245,10 +249,10 @@ impl Index {
     }
 
     /// Indexes a job id at the position that the index's function puts the provided job.
-    pub fn add(&self, job_id: u64, job: &Job) -> sled::Result<()> {
+    pub fn add(&self, item_id: u64, job: &Item) -> sled::Result<()> {
         let n = self.db.generate_id()?; // TODO: derive from job and index function
         self.tree
-            .insert(n.to_le_bytes(), &job_id.to_le_bytes()[..])
+            .insert(n.to_le_bytes(), &item_id.to_le_bytes()[..])
             .map(|_| ())
     }
 
