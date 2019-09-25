@@ -277,7 +277,7 @@ impl Index {
 }
 
 use std::thread::{spawn, JoinHandle};
-type EngineChan = (Arc<Job>, Arc<String>, Sender<Result<u64, String>>);
+type EngineChan = (Arc<Job>, Arc<String>, Sender<Result<Vec<u8>, String>>);
 
 // FIXME: use once-cell instead
 lazy_static::lazy_static! {
@@ -290,7 +290,7 @@ lazy_static::lazy_static! {
 
             for (_job, source, back) in input.iter() {
                 // TODO: inject job
-                let result = engine.eval::<u64>(&source).map_err(|e| format!("{}", e));
+                let result = engine.eval::<Vec<u8>>(&source).map_err(|e| format!("{}", e));
                 back.send(result).unwrap();
             }
         });
@@ -315,7 +315,7 @@ impl Function {
         }
     }
 
-    pub fn run(&self, job: Arc<Job>) -> Result<u64, String> {
+    pub fn run(&self, job: Arc<Job>) -> Result<Vec<u8>, String> {
         let (s, r) = bounded(1);
         self.engine.send((job, self.source.clone(), s)).unwrap();
         r.recv().unwrap()
