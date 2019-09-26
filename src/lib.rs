@@ -214,9 +214,9 @@ impl Queue {
 #[derive(Clone, Copy)]
 #[repr(u8)]
 pub enum IndexMode {
-    OrderedHash = 1, // hashing only as discriminant, low collisions, medium distribution, range queries
-    Ordered, // no hashing, resultant bucketing, no collisions, poor distribution, range queries
-    SipHash, // SipHash: low collisions, good distribution, only == queries
+    OrderedHash = 1, // hashing only as discriminant, low collisions, range queries
+    Ordered, // no hashing, resultant bucketing, no collisions, range queries
+    SipHash, // SipHash: low collisions, only == queries
 }
 
 impl Default for IndexMode {
@@ -305,16 +305,6 @@ pub struct Function {
     key_length: u8,
     instance: Arc<Mutex<Instance>>,
 }
-
-// function is a wasm module
-// module required to have two exports:
-// - constant: key_length (u8), which is the length of the returned key
-// - keying function: key_factory (in_offset: i32, in_length: i32, out_offset: i32) -> int
-//      Takes in offset+length for an input byte string that contains
-//      the input data in the module's memory, and an offset (length is
-//      the key_length constant) to write the output byte string to.
-//      The output byte string is always initialised and zeroed.
-//      Needs to return 0 for success, >0 for standard errors, <0 for custom errors.
 
 impl Function {
     pub fn new(id: u64, source: &[u8]) -> wasmer_runtime::error::Result<Self> {
