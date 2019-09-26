@@ -179,8 +179,7 @@ pub struct Queue {
 impl Queue {
     pub fn add(&self, item: &Item) -> sled::Result<u64> {
         let id = self.db.generate_id()?;
-        self.tree
-            .insert(id.to_le_bytes(), &item as &[u8])?;
+        self.tree.insert(id.to_le_bytes(), item as &[u8])?;
         Ok(id)
     }
 
@@ -216,8 +215,8 @@ impl Queue {
 #[repr(u8)]
 pub enum IndexMode {
     OrderedHash = 1, // hashing only as discriminant, low collisions, medium distribution, range queries
-    Ordered,         // no hashing, resultant bucketing, no collisions, poor distribution, range queries
-    SipHash,         // SipHash: low collisions, good distribution, only == queries
+    Ordered, // no hashing, resultant bucketing, no collisions, poor distribution, range queries
+    SipHash, // SipHash: low collisions, good distribution, only == queries
 }
 
 impl Default for IndexMode {
@@ -247,7 +246,7 @@ impl Index {
         let queue = u64::from_le_bytes(key[10..=17].try_into().unwrap());
         let mode: IndexMode = match key[18] {
             1 => IndexMode::OrderedHash,
-            _ => panic!("Invalid mode")
+            _ => panic!("Invalid mode"),
         };
         let function_id = u64::from_le_bytes(key[19..=26].try_into().unwrap());
         assert_eq!(key.len(), 27);
@@ -331,11 +330,10 @@ impl Function {
 
         let key_length = instance
             .exports()
-            .filter_map(|(s, e)| match (s.as_str(), e) {
+            .find_map(|(s, e)| match (s.as_str(), e) {
                 ("key_length", Export::Global(g)) => Some(g),
                 _ => None,
             })
-            .next()
             .expect("No key_length global export")
             .get()
             .to_u128()
@@ -354,6 +352,7 @@ impl Function {
     }
 
     pub fn call(&self, value: &[u8]) -> Result<Vec<u8>, wasmer_runtime::error::CallError> {
+        use wasmer_runtime::Value;
         let mut instance = self.instance.lock().unwrap();
         let memory = instance.context_mut().memory(0);
 
@@ -372,9 +371,9 @@ impl Function {
 
         // TODO: figure out how (or if it's needed) to shrink memory after use
         for (byte, cell) in value
-        .iter()
-        .chain(std::iter::repeat(&0).take(out_end - in_end))
-        .zip(memory.view()[in_start..in_end].iter())
+            .iter()
+            .chain(std::iter::repeat(&0).take(out_end - in_end))
+            .zip(memory.view()[in_start..in_end].iter())
         {
             cell.set(*byte);
         }
@@ -385,20 +384,23 @@ impl Function {
             out_start.try_into().expect("out_start too large"),
         ];
 
-        let result = instance.call("key_factory", &[
-            params[0].into(),
-            params[1].into(),
-            params[2].into(),
-        ])?;
+        let result = instance.call(
+            "key_factory",
+            &[params[0].into(), params[1].into(), params[2].into()],
+        )?;
 
-        let result = result.first().map(|r| r.to_u128()).unwrap_or(0);
+        let result = result.first().map_or(0, Value::to_u128);
 
         if result != 0 {
             panic!("Index function returned {}", result);
         }
 
         let memory = instance.context_mut().memory(0);
-        let output = wasm::memory_bytes(&memory, out_start as u32, out_end as u32);
+        let output = wasm::memory_bytes(
+            memory,
+            out_start.try_into().unwrap(),
+            out_end.try_into().unwrap(),
+        );
 
         Ok(output)
     }
