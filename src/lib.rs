@@ -152,7 +152,7 @@ impl Db {
         let id = queue.add(item)?;
 
         for index in &queue.indexes()? {
-            index.add(id, item)?;
+            index.insert(id, item)?;
         }
 
         Ok(id)
@@ -211,17 +211,34 @@ impl Queue {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 #[repr(u8)]
 pub enum IndexMode {
     OrderedHash = 1, // hashing only as discriminant, low collisions, range queries
-    Ordered, // no hashing, resultant bucketing, no collisions, range queries
-    SipHash, // SipHash: low collisions, only == queries
 }
 
 impl Default for IndexMode {
     fn default() -> Self {
-        IndexMode::OrderedHash
+        Self::OrderedHash
+    }
+}
+
+impl IndexMode {
+    pub fn key(self, function: &Function, item: &Item) -> Vec<u8> {
+        match self {
+            Self::OrderedHash => self.ordered_hash_keying(function, item),
+        }
+    }
+
+    fn ordered_hash_keying(self, function: &Function, item: &Item) -> Vec<u8> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::Hasher;
+
+        let mut order = function.call(item).unwrap();
+        let mut hasher = DefaultHasher::new();
+        hasher.write(item);
+        order.extend(&hasher.finish().to_le_bytes());
+        order
     }
 }
 
@@ -271,31 +288,16 @@ impl Index {
         })
     }
 
-    /// Indexes a job id at the position that the index's function puts the provided job.
-    pub fn add(&self, item_id: u64, job: &Item) -> sled::Result<()> {
-        let n = self.db.generate_id()?; // TODO: derive from job and index function
+    /// Computes an item’s key according to the keying mode and function.
+    pub fn key(&self, item: &Item) -> Vec<u8> {
+        self.mode.key(&self.function, item)
+    }
+
+    /// Inserts an item into the index.
+    pub fn insert(&self, item_id: u64, item: &Item) -> sled::Result<()> {
         self.tree
-            .insert(n.to_le_bytes(), &item_id.to_le_bytes()[..])
+            .insert(self.key(item), &item_id.to_le_bytes()[..])
             .map(|_| ())
-    }
-
-    /// Returns the nth job id from the top of the index, or the last if there's less than n, or
-    /// None if there's nothing there.
-    pub fn nth(&self, n: u64) -> sled::Result<Option<u64>> {
-        unimplemented!()
-    }
-
-    pub fn first(&self) -> sled::Result<Option<u64>> {
-        self.nth(1)
-    }
-
-    /// Removes the nth job id. See `nth()` for details.
-    pub fn pop_nth(&self, n: u64) -> sled::Result<Option<u64>> {
-        unimplemented!()
-    }
-
-    pub fn pop(&self) -> sled::Result<Option<u64>> {
-        self.pop_nth(1)
     }
 }
 
