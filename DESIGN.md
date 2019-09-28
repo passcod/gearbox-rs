@@ -132,7 +132,9 @@ is defined thus:
  - Exported global:
    `key_length: u8`.
 
-The module also has some shared memory (first bank).
+ - One bank of memory, not exported, not imported, of a sufficient size to
+   accomodate the key length plus 32 bytes plus any length of item you’re
+   expecting. I realise that's not super practical; I'm working on it.
 
 The `log` function is to be used for diagnostics and debug. Currently it prints
 to screen, though that may change.

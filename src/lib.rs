@@ -307,6 +307,13 @@ pub struct Function {
 }
 
 impl Function {
+    /// Initialise a keying function from its source.
+    ///
+    /// In practice, the "source" here is compiled WASM bytecode, not WAST any other kind of
+    /// source. We do not include a compiler here beyond the WASM runtime.
+    ///
+    /// This is an internal method. (If you got here from the public API: 1/ this is a bug,
+    /// 2/ this method is not covered under semver. Use directly at your own risk.)
     pub fn new(id: u64, source: &[u8]) -> wasmer_runtime::error::Result<Self> {
         use wasmer_runtime::{func, imports, instantiate, Export};
 
@@ -389,10 +396,26 @@ impl Function {
         let output = wasm::memory_bytes(
             memory,
             out_start.try_into().unwrap(),
-            out_end.try_into().unwrap(),
+            self.key_length.try_into().unwrap(),
         );
 
         Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod function_tests {
+    use super::Function;
+
+    #[test]
+    fn zero() {
+        let bytes = include_bytes!("../wats/keying-zero.wasm");
+        let zero = Function::new(0, bytes).unwrap();
+        assert_eq!(zero.id, 0);
+        assert_eq!(zero.key_length, 0);
+
+        let key = zero.call(&[]).unwrap();
+        assert_eq!(key, vec![]);
     }
 }
 
