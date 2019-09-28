@@ -317,6 +317,16 @@ impl Function {
     /// This is an internal method. (If you got here from the public API: 1/ this is a bug,
     /// 2/ this method is not covered under semver. Use directly at your own risk.)
     pub fn new(id: u64, source: &[u8]) -> wasmer_runtime::error::Result<Self> {
+        let (instance, key_length) = Self::make_instance(source)?;
+
+        Ok(Self {
+            id,
+            key_length,
+            instance,
+        })
+    }
+
+    fn make_instance(source: &[u8]) -> wasmer_runtime::error::Result<(Arc<Mutex<Instance>>, u8)> {
         use wasmer_runtime::{func, instantiate, Export, ImportObject, Memory};
         use wasmer_runtime_core::{import::Namespace, types::MemoryDescriptor, units::Pages};
 
@@ -353,11 +363,7 @@ impl Function {
             panic!("No key_factory function export");
         }
 
-        Ok(Self {
-            id,
-            key_length,
-            instance: Arc::new(Mutex::new(instance)),
-        })
+        Ok((Arc::new(Mutex::new(instance)), key_length))
     }
 
     pub fn call(&self, value: &[u8]) -> Result<Vec<u8>, wasmer_runtime::error::CallError> {
