@@ -274,7 +274,7 @@ impl Index {
         // - retrieve function from db
         let function_tree = db.open_tree([INDEX_FUNCTIONS])?;
         let function_source = function_tree.get(function_id.to_le_bytes())?.unwrap();
-        let function = Function::new(function_id, &function_source).unwrap();
+        let function = Function::new(function_id, db.clone(), &function_source).unwrap();
 
         // - construct
         Ok(Self {
@@ -304,6 +304,7 @@ impl Index {
 #[derive(Clone)]
 pub struct Function {
     id: u64,
+    db: Arc<sled::Db>,
     key_length: u8,
     instance: Arc<Mutex<Instance>>,
 }
@@ -313,22 +314,34 @@ impl Function {
     ///
     /// In practice, the "source" here is compiled WASM bytecode, not WAST any other kind of
     /// source. We do not include a compiler here beyond the WASM runtime.
-    ///
-    /// This is an internal method. (If you got here from the public API: 1/ this is a bug,
-    /// 2/ this method is not covered under semver. Use directly at your own risk.)
-    pub fn new(id: u64, source: &[u8]) -> wasmer_runtime::error::Result<Self> {
-        let (instance, key_length) = Self::make_instance(source)?;
+    pub fn new(id: u64, db: Arc<sled::Db>, source: &[u8]) -> wasmer_runtime::error::Result<Self> {
+        let (instance, key_length) = Self::make_instance(&db, id)?;
 
         Ok(Self {
             id,
+            db,
             key_length,
             instance,
         })
     }
 
-    fn make_instance(source: &[u8]) -> wasmer_runtime::error::Result<(Arc<Mutex<Instance>>, u8)> {
+    /// Re-initialise the function (to free its memory).
+    ///
+    /// If the item inserted in the instance's memory exceeds one page (64KB) minus some overhead,
+    /// the only way to reclaim that memory is to destroy the instance and make it anew.
+    pub fn reinstantiate(&mut self) -> wasmer_runtime::error::Result<()> {
+        let (instance, key_length) = Self::make_instance(&self.db, self.id)?;
+        assert_eq!(self.key_length, key_length);
+        self.instance = instance;
+        Ok(())
+    }
+
+    fn make_instance(db: &Arc<sled::Db>, id: u64) -> wasmer_runtime::error::Result<(Arc<Mutex<Instance>>, u8)> {
         use wasmer_runtime::{func, instantiate, Export, ImportObject, Memory};
         use wasmer_runtime_core::{import::Namespace, types::MemoryDescriptor, units::Pages};
+
+        let tree = db.open_tree([INDEX_FUNCTIONS]).unwrap();
+        let source = tree.get(id.to_le_bytes()).unwrap().unwrap();
 
         let mut namespace = Namespace::new();
         namespace.insert("log", func!(wasm::log));
@@ -345,7 +358,7 @@ impl Function {
         let mut import = ImportObject::new();
         import.register("env", namespace);
 
-        let instance = instantiate(source, &import)?;
+        let instance = instantiate(&source, &import)?;
 
         let key_length = instance
             .exports()
