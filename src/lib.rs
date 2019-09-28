@@ -317,13 +317,23 @@ impl Function {
     /// This is an internal method. (If you got here from the public API: 1/ this is a bug,
     /// 2/ this method is not covered under semver. Use directly at your own risk.)
     pub fn new(id: u64, source: &[u8]) -> wasmer_runtime::error::Result<Self> {
-        use wasmer_runtime::{func, imports, instantiate, Export};
+        use wasmer_runtime::{func, instantiate, Export, ImportObject, Memory};
+        use wasmer_runtime_core::{import::Namespace, types::MemoryDescriptor, units::Pages};
 
-        let import = imports! {
-            "env" => {
-                "log" => func!(wasm::log),
-            },
-        };
+        let mut namespace = Namespace::new();
+        namespace.insert("log", func!(wasm::log));
+        namespace.insert(
+            "key_space",
+            Memory::new(MemoryDescriptor {
+                minimum: Pages(1),
+                maximum: None,
+                shared: false,
+            })
+            .unwrap(),
+        );
+
+        let mut import = ImportObject::new();
+        import.register("env", namespace);
 
         let instance = instantiate(source, &import)?;
 

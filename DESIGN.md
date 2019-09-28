@@ -126,15 +126,14 @@ is defined thus:
  - Imported function:
    `log(ptr: i32, length: i32)`.
 
+ - Imported memory:
+   `key_space`, at index 0.
+
  - Exported function:
    `key_factory(in_ptr: i32, in_length: i32, out_ptr: i32) -> int`.
  
  - Exported global:
    `key_length: u8`.
-
- - One bank of memory, not exported, not imported, of a sufficient size to
-   accomodate the key length plus 32 bytes plus any length of item you’re
-   expecting. I realise that's not super practical; I'm working on it.
 
 The `log` function is to be used for diagnostics and debug. Currently it prints
 to screen, though that may change.
@@ -144,10 +143,10 @@ type inside the module, so long as its value fits in a `u8`.
 
 The `key_factory` function may return any integer type.
 
-It is passed (the location of) two byte buffers: one to be read as the input,
-the other to be written to as the output. The module defines the length of the
-output buffer itself as the `key_length` global. The input buffer may vary in
-length at every call.
+It is passed (the location of) two byte buffers in the `key_space` memory: one
+to be read as the input, the other to be written to as the output. The module
+defines the length of the output buffer itself as the `key_length` global. The
+input buffer may vary in length at every call.
 
 The output buffer is zeroed before the function is called. It is valid not to
 write some or any bytes to the output buffer: the output will be read anyway
