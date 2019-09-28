@@ -1,10 +1,10 @@
-#![deny(
+#![forbid(
     clippy::pedantic,
     clippy::nursery,
     deprecated,
-    intra_doc_link_resolution_failure
+    intra_doc_link_resolution_failure,
+    unsafe_code
 )]
-#![forbid(unsafe_code)]
 // While dev
 #![allow(unused_variables, dead_code)]
 
@@ -35,17 +35,17 @@ pub enum Named {
 impl Named {
     pub fn fwd(self) -> u8 {
         match self {
-            Named::Queue => LOOKUP_QUEUE_FWD,
-            Named::Index => LOOKUP_INDEX_FWD,
-            Named::Function => LOOKUP_FUNCTION_FWD,
+            Self::Queue => LOOKUP_QUEUE_FWD,
+            Self::Index => LOOKUP_INDEX_FWD,
+            Self::Function => LOOKUP_FUNCTION_FWD,
         }
     }
 
     pub fn rev(self) -> u8 {
         match self {
-            Named::Queue => LOOKUP_QUEUE_REV,
-            Named::Index => LOOKUP_INDEX_REV,
-            Named::Function => LOOKUP_FUNCTION_REV,
+            Self::Queue => LOOKUP_QUEUE_REV,
+            Self::Index => LOOKUP_INDEX_REV,
+            Self::Function => LOOKUP_FUNCTION_REV,
         }
     }
 }
