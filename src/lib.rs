@@ -3,7 +3,10 @@
     clippy::nursery,
     deprecated,
     intra_doc_link_resolution_failure,
-    unsafe_code
+    unsafe_code,
+//    missing_docs,
+//    clippy::option_unwrap_used,
+//    clippy::result_unwrap_used,
 )]
 // While dev
 #![allow(unused_variables, dead_code)]
@@ -336,7 +339,10 @@ impl Function {
         Ok(())
     }
 
-    fn make_instance(db: &Arc<sled::Db>, id: u64) -> wasmer_runtime::error::Result<(Arc<Mutex<Instance>>, u8)> {
+    fn make_instance(
+        db: &Arc<sled::Db>,
+        id: u64,
+    ) -> wasmer_runtime::error::Result<(Arc<Mutex<Instance>>, u8)> {
         use wasmer_runtime::{func, instantiate, Export, ImportObject, Memory};
         use wasmer_runtime_core::{import::Namespace, types::MemoryDescriptor, units::Pages};
 
