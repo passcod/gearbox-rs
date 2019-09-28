@@ -361,7 +361,7 @@ impl Function {
     }
 
     pub fn call(&self, value: &[u8]) -> Result<Vec<u8>, wasmer_runtime::error::CallError> {
-        use wasmer_runtime::Value;
+        use wasmer_runtime::Func;
         let mut instance = self.instance.lock().unwrap();
         let memory = instance.context_mut().memory(0);
 
@@ -387,18 +387,12 @@ impl Function {
             cell.set(*byte);
         }
 
-        let params: [i32; 3] = [
+        let func: Func<(i32, i32, i32), (i32)> = instance.func("key_factory").unwrap();
+        let result = func.call(
             in_start.try_into().expect("in_start too large"),
             in_end.try_into().expect("in_end too large"),
             out_start.try_into().expect("out_start too large"),
-        ];
-
-        let result = instance.call(
-            "key_factory",
-            &[params[0].into(), params[1].into(), params[2].into()],
         )?;
-
-        let result = result.first().map_or(0, Value::to_u128);
 
         if result != 0 {
             panic!("Index function returned {}", result);
