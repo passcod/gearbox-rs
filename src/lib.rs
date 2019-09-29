@@ -484,11 +484,18 @@ mod function_tests {
 		assert_eq!(func.id, 0);
 		assert_eq!(func.key_length, 8);
 
-		let key = func.call(b"even your lame goth cousin thinks it's weird").unwrap();
-		assert_eq!(
-			key,
-			b"kraken69".to_vec()
-		);
+		let key = func
+			.call(b"even your lame goth cousin thinks it's weird")
+			.unwrap();
+		assert_eq!(key, b"kraken69".to_vec());
+	}
+
+	#[test]
+	fn keylength_function() {
+		let bytes = include_bytes!("../wats/keylength-func.wasm");
+		let func = Function::new_from_source(0, bytes).unwrap();
+		assert_eq!(func.id, 0);
+		assert_eq!(func.key_length, 0);
 	}
 }
 
