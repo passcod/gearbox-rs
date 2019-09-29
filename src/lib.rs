@@ -462,6 +462,17 @@ mod function_tests {
         let key = zero.call(&[]).unwrap();
         assert_eq!(key, vec![]);
     }
+
+    #[test]
+    fn passthru64() {
+        let bytes = include_bytes!("../wats/keying-passthru-64.wasm");
+        let func = Function::new_from_source(0, bytes).unwrap();
+        assert_eq!(func.id, 0);
+        assert_eq!(func.key_length, 64);
+
+        let key = func.call(b"In Aziraphale's case, the relevant knowledge was, Crowley believed, largely theoretical.").unwrap();
+        assert_eq!(key, b"In Aziraphale's case, the relevant knowledge was, Crowley believ".to_vec());
+    }
 }
 
 mod wasm {
