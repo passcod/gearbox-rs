@@ -476,6 +476,20 @@ mod function_tests {
 			b"In Aziraphale's case, the relevant knowledge was, Crowley believ".to_vec()
 		);
 	}
+
+	#[test]
+	fn static_key() {
+		let bytes = include_bytes!("../wats/keying-static.wasm");
+		let func = Function::new_from_source(0, bytes).unwrap();
+		assert_eq!(func.id, 0);
+		assert_eq!(func.key_length, 8);
+
+		let key = func.call(b"even your lame goth cousin thinks it's weird").unwrap();
+		assert_eq!(
+			key,
+			b"kraken69".to_vec()
+		);
+	}
 }
 
 mod wasm {
