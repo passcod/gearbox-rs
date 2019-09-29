@@ -124,41 +124,38 @@ item's contents.
 is defined thus:
 
  - Imported function:
-   `log(ptr: i32, length: i32)`.
+   `log(ptr: i32, len: i32)`.
 
  - Imported memory:
    `key_space`, at index 0.
 
  - Exported function:
-   `key_factory(in_ptr: i32, in_length: i32, out_ptr: i32) -> int`.
+   `key_factory(ptr: i32, len: i32) -> i32`.
  
  - Exported global:
-   `key_length: u8`.
+   `KEY_LENGTH: u8`.
 
 The `log` function is to be used for diagnostics and debug. Currently it prints
 to screen, though that may change.
 
-The `key_length` (immutable) global is described as `u8` but can be any integer
-type inside the module, so long as its value fits in a `u8`.
+The `KEY_LENGTH` (immutable) global is described as `u8` but should be WASM
+type `i32`, so long as its value fits in a `u8`.
 
-The `key_factory` function may return any integer type.
+As an alternative to the exported global, if you cannot get it working within
+your source language, you may declare an exported function `key_length` (note
+the lowercase) that returns the same.
 
-It is passed (the location of) two byte buffers in the `key_space` memory: one
-to be read as the input, the other to be written to as the output. The module
-defines the length of the output buffer itself as the `key_length` global. The
-input buffer may vary in length at every call.
+It is passed (the location of) a byte buffer in the `key_space` memory, to be
+read as the input. It should write its output to that same memory and return
+its pointer. The module defines the length of the output itself as the
+`KEY_LENGTH` global defined above, so the factory never needs to return that.
+The input buffer may vary in length at every call.
 
-The output buffer is zeroed before the function is called. It is valid not to
-write some or any bytes to the output buffer: the output will be read anyway
-and will not be truncated.
+The return value may be negative in case of errors. At this point no standard
+errors have been defined, but pre-emptively the range 0 to –1024 is reserved.
 
-The return int should be `0` in case of success, and non-zero otherwise. The
-convention will be that positive error codes will be "standard" errors, and
-negative codes will be "custom" errors, but so far no standard errors have been
-defined.
-
-Through the buffers, the keying function is thus given an item's contents as
-argument and must return the corresponding key.
+The keying function is thus given an item's contents as argument and must
+return the corresponding key.
 
 Functions are stored in their compiled binary WASM form in the tree named `f`
 under a generated ID.

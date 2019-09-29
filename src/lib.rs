@@ -9,7 +9,7 @@
 //    clippy::result_unwrap_used,
 )]
 // While dev
-#![allow(unused_variables, dead_code)]
+#![allow(unused_variables, dead_code, clippy::expect_fun_call)]
 
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
@@ -387,19 +387,23 @@ impl Function {
         let mut import = ImportObject::new();
         import.register("env", namespace);
 
-        let instance = instantiate(&source, &import)?;
+        let instance = instantiate(source, &import)?;
 
         let key_length = instance
             .exports()
             .find_map(|(s, e)| match (s.as_str(), e) {
-                ("key_length", Export::Global(g)) => Some(g),
+                ("KEY_LENGTH", Export::Global(g)) => Some({
+                    let g = g.get();
+                    g.to_u128().try_into().expect(&format!("Length is too large: {:?}", g))
+                }),
+                ("key_length", Export::Function { .. }) => Some({
+                    let func: Func<(), (i32)> = instance.func("key_length").ok()?;
+                    let n = func.call().unwrap();
+                    n.try_into().expect(&format!("Length is too large: {:?}", n))
+                }),
                 _ => None,
             })
-            .expect("No key_length global export")
-            .get()
-            .to_u128()
-            .try_into()
-            .expect("Length is too large");
+            .expect("No KEY_LENGTH global or key_length function export");
 
         if !instance.exports().any(|(name, _)| name == "key_factory") {
             panic!("No key_factory function export");
@@ -413,43 +417,30 @@ impl Function {
         let mut instance = self.instance.lock().unwrap();
         let memory = instance.context_mut().memory(0);
 
-        // input section written with input data
         let in_start = 0;
         let in_end = in_start + value.len();
 
-        // 1..=32 zero bytes as padding
-
-        // output section zeroed of size key_length
-        let out_start = {
-            let pad = in_end % 32;
-            in_end + (32 - pad)
-        };
-        let out_end = out_start + self.key_length as usize;
-
-        // TODO: figure out how (or if it's needed) to shrink memory after use
         for (byte, cell) in value
             .iter()
-            .chain(std::iter::repeat(&0).take(out_end - in_end))
             .zip(memory.view()[in_start..in_end].iter())
         {
             cell.set(*byte);
         }
 
-        let func: Func<(i32, i32, i32), (i32)> = instance.func("key_factory").unwrap();
+        let func: Func<(i32, i32), (i32)> = instance.func("key_factory").unwrap();
         let result = func.call(
             in_start.try_into().expect("in_start too large"),
             in_end.try_into().expect("in_end too large"),
-            out_start.try_into().expect("out_start too large"),
         )?;
 
-        if result != 0 {
+        if result < 0 {
             panic!("Index function returned {}", result);
         }
 
         let memory = instance.context_mut().memory(0);
         let output = wasm::memory_bytes(
             memory,
-            out_start.try_into().unwrap(),
+            result.try_into().unwrap(),
             self.key_length.try_into().unwrap(),
         );
 
