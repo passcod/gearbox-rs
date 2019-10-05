@@ -491,6 +491,19 @@ mod function_tests {
 	}
 
 	#[test]
+	fn xor() {
+		let bytes = include_bytes!("../wats/keying-xor.wasm");
+		let func = Function::new_from_source(0, bytes).unwrap();
+		assert_eq!(func.id, 0);
+		assert_eq!(func.key_length, 1);
+
+		let key = func
+			.call(b"The world is becoming out of joint.")
+			.unwrap();
+		assert_eq!(key, vec![24]);
+	}
+
+	#[test]
 	fn keylength_function() {
 		let bytes = include_bytes!("../wats/keylength-func.wasm");
 		let func = Function::new_from_source(0, bytes).unwrap();
